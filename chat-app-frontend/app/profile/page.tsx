@@ -38,7 +38,7 @@ function Profile() {
           <h1 className="text-2xl font-bold text-black hover:text-blue-500/50">
             {userData.name}
           </h1>
-          <p className="text-2xl  text-gray-600 hover:text-blue-500/50">
+          <p className="text-2xl  text-gray-600 hover:text-blue-500/50 ">
             {userData.email}
           </p>
         </div>
