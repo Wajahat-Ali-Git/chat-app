@@ -21,7 +21,8 @@ const Login = () => {
         password,
       });
       localStorage.setItem("token", res.data.token);
-      router.push("/");
+      localStorage.setItem("user", JSON.stringify(res.data.user));
+      router.push("/home");
     } catch (error) {
       setErrorMessage("Login failed. Please check your credentials.");
     }
