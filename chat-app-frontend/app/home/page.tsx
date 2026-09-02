@@ -8,7 +8,7 @@ import axios from "axios";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { io } from "socket.io-client";
-import EmojiPicker, { EmojiClickData } from "emoji-picker-react";
+import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 
 export default function Home() {
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -22,8 +22,14 @@ export default function Home() {
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const emojiPickerRef = useRef<HTMLDivElement | null>(null);
+  // Map of conversationId -> unread count for the current user
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
 
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  // localStorage is only available in the browser, not during SSR
+  const [user] = useState(() => {
+    if (typeof window === "undefined") return {};
+    return JSON.parse(localStorage.getItem("user") || "{}");
+  });
   const userId = user._id || user.id;
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -131,32 +137,51 @@ export default function Home() {
     if (!socket) return;
 
     const handleNewMessage = (newMessage: any) => {
-      // Update active messages if it matches
-      if (conversationId === newMessage.conversation) {
+      const incomingConvoId: string = newMessage.conversation;
+      const isFromMe =
+        newMessage.sender?._id === userId || newMessage.sender === userId;
+
+      if (conversationId === incomingConvoId) {
+        // This conversation is currently open — append (dedup guarded)
         setMessages((prev) => {
-          // Prevent duplicates
           if (prev.some((m) => m._id === newMessage._id)) return prev;
           return [...prev, newMessage];
         });
+        // No badge for the active conversation
+      } else if (!isFromMe) {
+        // Message in a background conversation not sent by me — bump badge
+        setUnreadCounts((prev) => ({
+          ...prev,
+          [incomingConvoId]: (prev[incomingConvoId] || 0) + 1,
+        }));
       }
 
-      // Update the sidebar conversations list with the latest message
-      setConversations((prev) => {
-        return prev.map((c) => {
-          if (c._id === newMessage.conversation) {
-            return { ...c, lastMessage: newMessage };
-          }
-          return c;
-        });
+      // Always refresh the sidebar last-message preview (skip if no change)
+      setConversations((prev) =>
+        prev.map((c) =>
+          c._id === incomingConvoId ? { ...c, lastMessage: newMessage } : c,
+        ),
+      );
+    };
+
+    // The other user opened the conversation and read the messages — clear badge
+    const handleMessagesRead = ({ conversationId: readConvoId }: any) => {
+      setUnreadCounts((prev) => {
+        if (!prev[readConvoId]) return prev;
+        const next = { ...prev };
+        delete next[readConvoId];
+        return next;
       });
     };
 
     socket.on("new_message", handleNewMessage);
+    socket.on("messages_read", handleMessagesRead);
 
     return () => {
       socket.off("new_message", handleNewMessage);
+      socket.off("messages_read", handleMessagesRead);
     };
-  }, [socket, conversationId]);
+  }, [socket, conversationId, userId]);
 
   const fetchMessages = async (id: string) => {
     try {
@@ -175,6 +200,13 @@ export default function Home() {
     setConversationId(id);
     localStorage.setItem("activeConversationId", id);
     fetchMessages(id);
+    // Clear the unread badge immediately when the user opens the conversation
+    setUnreadCounts((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
 
   const getconversations = async () => {
@@ -186,12 +218,16 @@ export default function Home() {
       }
 
       const res = await axios.get("http://localhost:5000/api/conversations", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
-      console.log("Fetched conversations:", res.data);
       setConversations(res.data);
+
+      // Seed unread counts from the server response
+      const counts: Record<string, number> = {};
+      res.data.forEach((c: any) => {
+        if (c.unreadCount > 0) counts[c._id] = c.unreadCount;
+      });
+      setUnreadCounts(counts);
     } catch (error) {
       console.error("Failed to fetch conversations:", error);
     }
@@ -323,6 +359,11 @@ export default function Home() {
             </div>
             <div className="self-start md:self-auto rounded-full border border-slate-800 bg-slate-900/60 backdrop-blur-md px-4 py-2 text-xs md:text-sm text-slate-300 font-medium">
               {conversations.length} active chats
+              {Object.values(unreadCounts).reduce((a, b) => a + b, 0) > 0 && (
+                <span className="ml-2 inline-flex items-center justify-center min-w-[20px] h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold px-1.5">
+                  {Object.values(unreadCounts).reduce((a, b) => a + b, 0)}
+                </span>
+              )}
             </div>
           </div>
 
@@ -374,13 +415,15 @@ export default function Home() {
                           className={`cursor-pointer px-4 py-4 transition-all duration-200 hover:bg-slate-900/60 ${
                             isActive
                               ? "bg-slate-900 border-l-4 border-blue-500"
+                              : unreadCounts[conversation._id]
+                              ? "border-l-4 border-blue-400/60 bg-slate-900/20"
                               : "border-l-4 border-transparent"
                           }`}
                         >
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
-                                <p className="text-sm font-semibold text-white truncate">
+                                <p className={`text-sm font-semibold truncate ${unreadCounts[conversation._id] ? "text-white" : "text-white"}`}>
                                   {otherUser?.name || "Unknown"}
                                 </p>
                                 {otherUser?.isOnline && (
@@ -391,17 +434,25 @@ export default function Home() {
                                 {otherUser?.email || "No email"}
                               </p>
                             </div>
-                            <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500 shrink-0">
-                              {otherUser?.isOnline 
-                                ? "Online" 
-                                : otherUser?.lastSeen 
-                                ? formatLastSeen(otherUser.lastSeen)
-                                : "Offline"}
-                            </span>
+                            <div className="flex flex-col items-end gap-1.5 shrink-0">
+                              <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                                {otherUser?.isOnline
+                                  ? "Online"
+                                  : otherUser?.lastSeen
+                                  ? formatLastSeen(otherUser.lastSeen)
+                                  : "Offline"}
+                              </span>
+                              {unreadCounts[conversation._id] > 0 && (
+                                <span className="inline-flex items-center justify-center min-w-[20px] h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold px-1.5 shadow-md shadow-blue-500/30">
+                                  {unreadCounts[conversation._id] > 99
+                                    ? "99+"
+                                    : unreadCounts[conversation._id]}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                          <p className="mt-2 truncate text-xs text-slate-400">
-                            {conversation.lastMessage?.text ||
-                              "No messages yet."}
+                          <p className={`mt-2 truncate text-xs ${unreadCounts[conversation._id] ? "text-slate-200 font-medium" : "text-slate-400"}`}>
+                            {conversation.lastMessage?.text || "No messages yet."}
                           </p>
                         </li>
                       );
@@ -549,7 +600,7 @@ export default function Home() {
                     <div ref={emojiPickerRef} className="absolute bottom-24 right-8 z-50">
                       <EmojiPicker
                         onEmojiClick={onEmojiClick}
-                        theme="dark"
+                        theme={Theme.DARK}
                         searchDisabled={false}
                         skinTonesDisabled={false}
                         width={350}
