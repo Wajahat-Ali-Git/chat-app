@@ -24,6 +24,12 @@ const sendMessage = async (req, res) => {
       "-password",
     );
 
+    // Emit the new message to all clients in the conversation room
+    const io = req.app.get("io");
+    if (io) {
+      io.to(conversationId).emit("new_message", populatedMessage);
+    }
+
     res.status(201).json(populatedMessage);
   } catch (error) {
     res.status(500).json({
