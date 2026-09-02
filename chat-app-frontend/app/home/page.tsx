@@ -6,6 +6,7 @@ import { FaChevronLeft } from "react-icons/fa6";
 import axios from "axios";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { io } from "socket.io-client";
 
 export default function Home() {
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -13,6 +14,7 @@ export default function Home() {
   const [text, setText] = useState("");
   const router = useRouter();
   const [conversations, setConversations] = useState<any[]>([]);
+  const [socket, setSocket] = useState<any>(null);
 
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const userId = user._id || user.id;
@@ -39,6 +41,55 @@ export default function Home() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Initialize Socket.IO connection
+  useEffect(() => {
+    const newSocket = io("http://localhost:5000");
+    setSocket(newSocket);
+
+    return () => {
+      newSocket.disconnect();
+    };
+  }, []);
+
+  // Join the active conversation room
+  useEffect(() => {
+    if (socket && conversationId) {
+      socket.emit("join_conversation", conversationId);
+    }
+  }, [socket, conversationId]);
+
+  // Listen for new messages
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleNewMessage = (newMessage: any) => {
+      // Update active messages if it matches
+      if (conversationId === newMessage.conversation) {
+        setMessages((prev) => {
+          // Prevent duplicates
+          if (prev.some((m) => m._id === newMessage._id)) return prev;
+          return [...prev, newMessage];
+        });
+      }
+
+      // Update the sidebar conversations list with the latest message
+      setConversations((prev) => {
+        return prev.map((c) => {
+          if (c._id === newMessage.conversation) {
+            return { ...c, lastMessage: newMessage };
+          }
+          return c;
+        });
+      });
+    };
+
+    socket.on("new_message", handleNewMessage);
+
+    return () => {
+      socket.off("new_message", handleNewMessage);
+    };
+  }, [socket, conversationId]);
 
   const fetchMessages = async (id: string) => {
     try {
@@ -113,6 +164,16 @@ export default function Home() {
       // append the new message to the list
       setMessages((prev) => [...prev, res.data]);
       setText("");
+
+      // update the conversations list's last message
+      setConversations((prev) => {
+        return prev.map((c) => {
+          if (c._id === convoId) {
+            return { ...c, lastMessage: res.data };
+          }
+          return c;
+        });
+      });
     } catch (error) {
       console.error("Failed to send message:", error);
     }
