@@ -15,6 +15,9 @@ export default function Home() {
   const router = useRouter();
   const [conversations, setConversations] = useState<any[]>([]);
   const [socket, setSocket] = useState<any>(null);
+  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+  const [isTyping, setIsTyping] = useState(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const userId = user._id || user.id;
@@ -82,6 +85,35 @@ export default function Home() {
       socket.off("user_status_changed", handleStatusChange);
     };
   }, [socket]);
+
+  // Listen for typing indicators
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleUserTyping = ({ conversationId: typingConvoId, userId: typingUserId }: any) => {
+      if (conversationId === typingConvoId) {
+        setTypingUsers(prev => new Set(prev).add(typingUserId));
+      }
+    };
+
+    const handleUserStopTyping = ({ conversationId: typingConvoId, userId: typingUserId }: any) => {
+      if (conversationId === typingConvoId) {
+        setTypingUsers(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(typingUserId);
+          return newSet;
+        });
+      }
+    };
+
+    socket.on("user_typing", handleUserTyping);
+    socket.on("user_stop_typing", handleUserStopTyping);
+
+    return () => {
+      socket.off("user_typing", handleUserTyping);
+      socket.off("user_stop_typing", handleUserStopTyping);
+    };
+  }, [socket, conversationId]);
 
   // Join the active conversation room
   useEffect(() => {
@@ -179,7 +211,13 @@ export default function Home() {
         return;
       }
 
-      const res = await axios.post(
+      // Stop typing indicator before sending
+      if (socket && isTyping) {
+        socket.emit("stop_typing", { conversationId: convoId, userId });
+        setIsTyping(false);
+      }
+
+      await axios.post(
         `http://localhost:5000/api/messages`,
         {
           conversationId: convoId,
@@ -192,22 +230,51 @@ export default function Home() {
         },
       );
 
-      // append the new message to the list
-      setMessages((prev) => [...prev, res.data]);
+      // Clear the text input immediately for better UX
       setText("");
-
-      // update the conversations list's last message
-      setConversations((prev) => {
-        return prev.map((c) => {
-          if (c._id === convoId) {
-            return { ...c, lastMessage: res.data };
-          }
-          return c;
-        });
-      });
+      
+      // Note: Message will be added via Socket.IO 'new_message' event
+      // This prevents duplicate messages for the sender
     } catch (error) {
       console.error("Failed to send message:", error);
     }
+  };
+
+  const handleTyping = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setText(e.target.value);
+
+    if (!socket || !conversationId) return;
+
+    if (!isTyping) {
+      setIsTyping(true);
+      socket.emit("typing", { conversationId, userId });
+    }
+
+    // Clear existing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    // Set new timeout to stop typing indicator after 3 seconds of inactivity
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit("stop_typing", { conversationId, userId });
+      setIsTyping(false);
+    }, 3000);
+  };
+
+  const formatLastSeen = (lastSeen: string | Date) => {
+    const now = new Date();
+    const lastSeenDate = new Date(lastSeen);
+    const diffInMs = now.getTime() - lastSeenDate.getTime();
+    const diffInMins = Math.floor(diffInMs / 60000);
+    const diffInHours = Math.floor(diffInMs / 3600000);
+    const diffInDays = Math.floor(diffInMs / 86400000);
+
+    if (diffInMins < 1) return "Just now";
+    if (diffInMins < 60) return `${diffInMins}m ago`;
+    if (diffInHours < 24) return `${diffInHours}h ago`;
+    if (diffInDays < 7) return `${diffInDays}d ago`;
+    return lastSeenDate.toLocaleDateString();
   };
 
   return (
@@ -286,15 +353,24 @@ export default function Home() {
                         >
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0 flex-1">
-                              <p className="text-sm font-semibold text-white truncate">
-                                {otherUser?.name || "Unknown"}
-                              </p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-semibold text-white truncate">
+                                  {otherUser?.name || "Unknown"}
+                                </p>
+                                {otherUser?.isOnline && (
+                                  <span className="w-2 h-2 rounded-full bg-green-500 shrink-0"></span>
+                                )}
+                              </div>
                               <p className="text-xs text-slate-500 truncate mt-0.5">
                                 {otherUser?.email || "No email"}
                               </p>
                             </div>
                             <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500 shrink-0">
-                              {conversation.lastMessage ? "Recent" : "New"}
+                              {otherUser?.isOnline 
+                                ? "Online" 
+                                : otherUser?.lastSeen 
+                                ? formatLastSeen(otherUser.lastSeen)
+                                : "Offline"}
                             </span>
                           </div>
                           <p className="mt-2 truncate text-xs text-slate-400">
@@ -327,7 +403,7 @@ export default function Home() {
                       <FaChevronLeft className="text-base" />
                     </button>
                   )}
-                  <div>
+                  <div className="flex-1">
                     <p className="text-xs uppercase tracking-[0.25em] text-slate-500 font-semibold">
                       Active Conversation
                     </p>
@@ -339,6 +415,21 @@ export default function Home() {
                         {(() => {
                            const partner = activeConversation.participants.find((p: any) => p._id !== userId);
                            if (!partner) return null;
+                           
+                           // Check if partner is typing
+                           if (typingUsers.has(partner._id)) {
+                             return (
+                               <span className="flex items-center gap-1.5 text-green-400 font-medium">
+                                 <span className="flex gap-0.5">
+                                   <span className="w-1 h-1 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
+                                   <span className="w-1 h-1 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
+                                   <span className="w-1 h-1 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                                 </span>
+                                 typing...
+                               </span>
+                             );
+                           }
+                           
                            if (partner.isOnline) {
                              return <><span className="w-2 h-2 rounded-full bg-green-500 shrink-0"></span> Online</>;
                            } else if (partner.lastSeen) {
@@ -367,41 +458,59 @@ export default function Home() {
                     </div>
                   </div>
                 ) : (
-                  messages.map((msg, index) => {
-                    const isMine =
-                      msg.sender?._id === userId || msg.sender === userId;
-                    return (
-                      <div
-                        key={index}
-                        className={`flex ${
-                          isMine ? "justify-end" : "justify-start"
-                        }`}
-                      >
+                  <>
+                    {messages.map((msg, index) => {
+                      const isMine =
+                        msg.sender?._id === userId || msg.sender === userId;
+                      return (
                         <div
-                          className={`max-w-[75%] rounded-[20px] px-4 py-3 text-sm shadow-md ${
-                            isMine
-                              ? "bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white rounded-br-none"
-                              : "bg-slate-900 border border-slate-800 text-slate-100 rounded-bl-none"
+                          key={index}
+                          className={`flex ${
+                            isMine ? "justify-end" : "justify-start"
                           }`}
                         >
-                          <p className="whitespace-pre-wrap leading-relaxed">
-                            {msg.text}
-                          </p>
                           <div
-                            className={`mt-1.5 flex items-center gap-2 text-[10px] font-medium tracking-wide ${isMine ? "text-slate-300 justify-end" : "text-slate-500 justify-start"}`}
+                            className={`max-w-[75%] rounded-[20px] px-4 py-3 text-sm shadow-md ${
+                              isMine
+                                ? "bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white rounded-br-none"
+                                : "bg-slate-900 border border-slate-800 text-slate-100 rounded-bl-none"
+                            }`}
                           >
-                            <span>{isMine ? "You" : msg.sender?.name || "Partner"}</span>
-                            {msg.createdAt && (
-                              <>
-                                <span className="w-0.5 h-0.5 rounded-full bg-slate-500/50"></span>
-                                <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                              </>
-                            )}
+                            <p className="whitespace-pre-wrap leading-relaxed">
+                              {msg.text}
+                            </p>
+                            <div
+                              className={`mt-1.5 flex items-center gap-2 text-[10px] font-medium tracking-wide ${isMine ? "text-slate-300 justify-end" : "text-slate-500 justify-start"}`}
+                            >
+                              <span>{isMine ? "You" : msg.sender?.name || "Partner"}</span>
+                              {msg.createdAt && (
+                                <>
+                                  <span className="w-0.5 h-0.5 rounded-full bg-slate-500/50"></span>
+                                  <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    
+                    {/* Typing Indicator */}
+                    {typingUsers.size > 0 && (
+                      <div className="flex justify-start">
+                        <div className="bg-slate-900 border border-slate-800 rounded-[20px] rounded-bl-none px-4 py-3 text-sm shadow-md">
+                          <div className="flex items-center gap-2">
+                            <div className="flex gap-1">
+                              <span className="w-2 h-2 bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
+                              <span className="w-2 h-2 bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
+                              <span className="w-2 h-2 bg-slate-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                            </div>
+                            <span className="text-xs text-slate-400 ml-1">typing...</span>
                           </div>
                         </div>
                       </div>
-                    );
-                  })
+                    )}
+                  </>
                 )}
                 <div ref={messagesEndRef} />
               </div>
@@ -412,7 +521,7 @@ export default function Home() {
                   <textarea
                     placeholder="Type a message..."
                     value={text}
-                    onChange={(e) => setText(e.target.value)}
+                    onChange={handleTyping}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
