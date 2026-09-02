@@ -47,10 +47,41 @@ export default function Home() {
     const newSocket = io("http://localhost:5000");
     setSocket(newSocket);
 
+    if (userId) {
+      newSocket.emit("setup", userId);
+    }
+
     return () => {
       newSocket.disconnect();
     };
-  }, []);
+  }, [userId]);
+
+  // Listen for user status changes
+  useEffect(() => {
+    if (!socket) return;
+    
+    const handleStatusChange = ({ userId: updatedUserId, isOnline, lastSeen }: any) => {
+      setConversations(prev => prev.map(c => {
+        const hasUser = c.participants?.some((p: any) => p._id === updatedUserId);
+        if (hasUser) {
+          const updatedParticipants = c.participants.map((p: any) => {
+            if (p._id === updatedUserId) {
+              return { ...p, isOnline, lastSeen };
+            }
+            return p;
+          });
+          return { ...c, participants: updatedParticipants };
+        }
+        return c;
+      }));
+    };
+    
+    socket.on("user_status_changed", handleStatusChange);
+    
+    return () => {
+      socket.off("user_status_changed", handleStatusChange);
+    };
+  }, [socket]);
 
   // Join the active conversation room
   useEffect(() => {
@@ -303,6 +334,21 @@ export default function Home() {
                     <h2 className="mt-0.5 text-xl md:text-2xl font-bold tracking-tight text-white">
                       {activeConversationUserName || "Select a conversation"}
                     </h2>
+                    {activeConversation && activeConversation.participants && (
+                      <p className="text-xs text-slate-400 mt-1 flex items-center gap-1.5">
+                        {(() => {
+                           const partner = activeConversation.participants.find((p: any) => p._id !== userId);
+                           if (!partner) return null;
+                           if (partner.isOnline) {
+                             return <><span className="w-2 h-2 rounded-full bg-green-500 shrink-0"></span> Online</>;
+                           } else if (partner.lastSeen) {
+                             return `Last seen ${new Date(partner.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, ${new Date(partner.lastSeen).toLocaleDateString()}`;
+                           } else {
+                             return "Offline";
+                           }
+                        })()}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -341,11 +387,17 @@ export default function Home() {
                           <p className="whitespace-pre-wrap leading-relaxed">
                             {msg.text}
                           </p>
-                          <p
-                            className={`mt-1.5 text-[10px] font-medium tracking-wide ${isMine ? "text-slate-300" : "text-slate-500"} text-right`}
+                          <div
+                            className={`mt-1.5 flex items-center gap-2 text-[10px] font-medium tracking-wide ${isMine ? "text-slate-300 justify-end" : "text-slate-500 justify-start"}`}
                           >
-                            {isMine ? "You" : msg.sender?.name || "Partner"}
-                          </p>
+                            <span>{isMine ? "You" : msg.sender?.name || "Partner"}</span>
+                            {msg.createdAt && (
+                              <>
+                                <span className="w-0.5 h-0.5 rounded-full bg-slate-500/50"></span>
+                                <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
