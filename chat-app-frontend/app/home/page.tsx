@@ -3,10 +3,12 @@
 import Header from "../../src/components/Header";
 import { AiOutlineSend } from "react-icons/ai";
 import { FaChevronLeft } from "react-icons/fa6";
+import { BsEmojiSmile } from "react-icons/bs";
 import axios from "axios";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { io } from "socket.io-client";
+import EmojiPicker, { EmojiClickData } from "emoji-picker-react";
 
 export default function Home() {
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -18,6 +20,8 @@ export default function Home() {
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
   const [isTyping, setIsTyping] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiPickerRef = useRef<HTMLDivElement | null>(null);
 
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const userId = user._id || user.id;
@@ -277,6 +281,28 @@ export default function Home() {
     return lastSeenDate.toLocaleDateString();
   };
 
+  const onEmojiClick = (emojiData: EmojiClickData) => {
+    setText((prevText) => prevText + emojiData.emoji);
+    setShowEmojiPicker(false);
+  };
+
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
+        setShowEmojiPicker(false);
+      }
+    };
+
+    if (showEmojiPicker) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showEmojiPicker]);
+
   return (
     <div className="flex h-screen w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
       {/* Sidebar navigation */}
@@ -517,26 +543,51 @@ export default function Home() {
 
               {/* Chat Input */}
               {activeConversation && (
-                <div className="mt-4 flex items-end gap-3 shrink-0">
-                  <textarea
-                    placeholder="Type a message..."
-                    value={text}
-                    onChange={handleTyping}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSend();
-                      }
-                    }}
-                    className="min-h-[50px] max-h-[120px] flex-1 rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 text-slate-100 placeholder-slate-500 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-sm resize-none custom-scrollbar"
-                  />
-                  <button
-                    onClick={() => handleSend()}
-                    disabled={!text.trim()}
-                    className="rounded-2xl bg-gradient-to-r from-blue-500 to-indigo-600 p-3.5 text-white shadow-lg shadow-blue-500/10 transition hover:opacity-95 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none disabled:scale-100 shrink-0"
-                  >
-                    <AiOutlineSend className="text-xl" />
-                  </button>
+                <div className="mt-4 shrink-0">
+                  {/* Emoji Picker */}
+                  {showEmojiPicker && (
+                    <div ref={emojiPickerRef} className="absolute bottom-24 right-8 z-50">
+                      <EmojiPicker
+                        onEmojiClick={onEmojiClick}
+                        theme="dark"
+                        searchDisabled={false}
+                        skinTonesDisabled={false}
+                        width={350}
+                        height={400}
+                      />
+                    </div>
+                  )}
+                  
+                  <div className="flex items-end gap-3">
+                    <div className="relative flex-1">
+                      <textarea
+                        placeholder="Type a message..."
+                        value={text}
+                        onChange={handleTyping}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSend();
+                          }
+                        }}
+                        className="min-h-[50px] max-h-[120px] w-full rounded-2xl border border-slate-800 bg-slate-950/80 px-4 py-3 pr-12 text-slate-100 placeholder-slate-500 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-sm resize-none custom-scrollbar"
+                      />
+                      <button
+                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                        className="absolute right-3 bottom-3 p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-colors"
+                        title="Add emoji"
+                      >
+                        <BsEmojiSmile className="text-xl" />
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => handleSend()}
+                      disabled={!text.trim()}
+                      className="rounded-2xl bg-gradient-to-r from-blue-500 to-indigo-600 p-3.5 text-white shadow-lg shadow-blue-500/10 transition hover:opacity-95 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none disabled:scale-100 shrink-0"
+                    >
+                      <AiOutlineSend className="text-xl" />
+                    </button>
+                  </div>
                 </div>
               )}
             </section>

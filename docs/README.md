@@ -35,6 +35,12 @@ Welcome to the ChatWe documentation! This guide will help you navigate through a
    - Future enhancements
    - Technical specifications
 
+5. **[Emoji Feature Guide](EMOJI_FEATURE.md)** 😊
+   - How to use emoji picker
+   - Technical implementation
+   - Customization options
+   - Troubleshooting
+
 ### Component-Specific Docs
 
 5. **[Backend README](../chat-app-backend/README.md)**
