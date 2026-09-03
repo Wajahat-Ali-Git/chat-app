@@ -11,6 +11,7 @@ connectDB();
 const app = express();
 const http = require("http");
 const { Server } = require("socket.io");
+const User = require("./models/user");
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -21,16 +22,60 @@ const io = new Server(server, {
 
 app.set("io", io);
 
+const userSocketMap = new Map(); // Map<userId, socketId>
+
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
+
+  socket.on("setup", async (userId) => {
+    if (userId) {
+      userSocketMap.set(userId, socket.id);
+      socket.userId = userId;
+      
+      // Update database
+      await User.findByIdAndUpdate(userId, { isOnline: true });
+      
+      // Broadcast status change
+      io.emit("user_status_changed", { userId, isOnline: true });
+      console.log(`User ${userId} is now online`);
+    }
+  });
 
   socket.on("join_conversation", (conversationId) => {
     socket.join(conversationId);
     console.log(`User joined conversation: ${conversationId}`);
   });
 
-  socket.on("disconnect", () => {
+  // Typing indicator
+  socket.on("typing", ({ conversationId, userId }) => {
+    socket.to(conversationId).emit("user_typing", { conversationId, userId });
+  });
+
+  // Stop typing indicator
+  socket.on("stop_typing", ({ conversationId, userId }) => {
+    socket.to(conversationId).emit("user_stop_typing", { conversationId, userId });
+  });
+
+  socket.on("disconnect", async () => {
     console.log("User disconnected:", socket.id);
+    if (socket.userId) {
+      userSocketMap.delete(socket.userId);
+      const lastSeen = new Date();
+      
+      // Update database
+      await User.findByIdAndUpdate(socket.userId, { 
+        isOnline: false, 
+        lastSeen 
+      });
+      
+      // Broadcast status change
+      io.emit("user_status_changed", { 
+        userId: socket.userId, 
+        isOnline: false, 
+        lastSeen 
+      });
+      console.log(`User ${socket.userId} is now offline`);
+    }
   });
 });
 

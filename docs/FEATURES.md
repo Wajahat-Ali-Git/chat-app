@@ -13,6 +13,7 @@
 - Message history persistence
 - Conversation threading
 - Message timestamps
+- **Emoji support with emoji picker** 😊
 
 ### 👥 User Management
 - User registration and login
@@ -59,6 +60,7 @@ Real-time typing indicators shown in two locations:
 - Smooth animations and transitions
 - Avatar system with user initials
 - Loading and empty states
+- **Emoji picker with search and categories** 🎨
 
 ### 🔍 Search & Discovery
 - Contact search by name or email
@@ -163,7 +165,8 @@ Real-time typing indicators shown in two locations:
 ### UI Improvements
 - [ ] Custom themes
 - [ ] Light mode
-- [ ] Custom emoji picker
+- [ ] Custom emoji picker themes
+- [x] Emoji picker **✅ Completed**
 - [ ] GIF support
 - [ ] Message formatting (bold, italic, code)
 - [ ] Link previews
