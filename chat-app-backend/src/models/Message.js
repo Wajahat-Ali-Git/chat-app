@@ -1,5 +1,4 @@
 const mongoose = require("mongoose");
-const conversation = require("./conversation");
 
 const messageSchema = new mongoose.Schema(
   {
@@ -15,6 +14,13 @@ const messageSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    // Tracks which users have read this message
+    readBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
   },
   { timestamps: true },
 );

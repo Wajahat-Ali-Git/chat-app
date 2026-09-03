@@ -14,6 +14,7 @@ A modern, full-stack real-time chat application built with Next.js and Node.js, 
 ### Core Functionality
 - 🔐 **Secure Authentication** - JWT-based user authentication and authorization
 - 💬 **Real-Time Messaging** - Instant messaging with Socket.IO integration
+- 😊 **Emoji Support** - Rich emoji picker with search and categories
 - 👥 **Contact Management** - Search and connect with users in your network
 - 🗂️ **Conversation Management** - Organize and track multiple conversations
 - 🎨 **Modern UI/UX** - Beautiful gradient designs with Tailwind CSS
@@ -30,9 +31,10 @@ A modern, full-stack real-time chat application built with Next.js and Node.js, 
 - � **Instant Status Updates** - Real-time online/offline notifications
 
 ### User Experience
-- �🔍 **Search Functionality** - Find contacts quickly by name or email
+- 🔍 **Search Functionality** - Find contacts quickly by name or email
 - 📊 **User Profiles** - View and manage user information
 - 🎭 **Avatar System** - Dynamic gradient avatars with user initials
+- 😊 **Emoji Picker** - Easy emoji selection with dark theme
 - ⚡ **Smart Features** - Auto-scroll, keyboard shortcuts, smooth animations
 
 ---

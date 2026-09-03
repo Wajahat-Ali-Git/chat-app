@@ -12,6 +12,7 @@ Modern Next.js frontend with real-time messaging capabilities.
 - **UI Components**: Custom components with React Icons
 - **HTTP Client**: Axios
 - **Real-time**: Socket.IO Client
+- **Emoji Picker**: emoji-picker-react
 - **State Management**: React Hooks
 
 ---
@@ -97,6 +98,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 - Socket.IO integration
 - Message history
 - Conversation list
+- Emoji picker with search 😊
 
 ### User Presence
 - Online/offline status indicators
@@ -165,8 +167,9 @@ Welcome page with navigation to login/signup
 ### Chat Window
 - Message history
 - Typing indicators
-- Message input
+- Message input with emoji picker
 - Auto-scroll to bottom
+- Send button with disabled state
 
 ### Contact Card
 - User information
