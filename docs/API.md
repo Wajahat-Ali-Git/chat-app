@@ -227,7 +227,7 @@ POST /api/conversations
 
 ---
 
-#### Create Group Conversation *(pending backend implementation)*
+#### Create Group Conversation
 ```http
 POST /api/conversations/group
 ```
@@ -238,7 +238,7 @@ POST /api/conversations/group
 ```json
 {
   "groupName": "Design Team",
-  "members": [
+  "participantIds": [
     "60d5ec49f1b2c72b8c8e4f1b",
     "60d5ec49f1b2c72b8c8e4f1c"
   ]
@@ -250,21 +250,37 @@ POST /api/conversations/group
 {
   "_id": "60d5ec49f1b2c72b8c8e4f1d",
   "groupName": "Design Team",
-  "participants": ["60d5ec49f1b2c72b8c8e4f1a", "60d5ec49f1b2c72b8c8e4f1b", "60d5ec49f1b2c72b8c8e4f1c"],
+  "participants": [
+    {
+      "_id": "60d5ec49f1b2c72b8c8e4f1a",
+      "name": "John Doe",
+      "email": "john@example.com"
+    },
+    {
+      "_id": "60d5ec49f1b2c72b8c8e4f1b",
+      "name": "Jane Smith",
+      "email": "jane@example.com"
+    }
+  ],
   "isGroup": true,
-  "createdBy": "60d5ec49f1b2c72b8c8e4f1a",
-  "createdAt": "2024-01-15T09:00:00.000Z"
+  "createdBy": {
+    "_id": "60d5ec49f1b2c72b8c8e4f1a",
+    "name": "John Doe",
+    "email": "john@example.com"
+  },
+  "createdAt": "2024-01-15T09:00:00.000Z",
+  "updatedAt": "2024-01-15T09:00:00.000Z"
 }
 ```
 
 **Errors**:
-- `400` - groupName or members required
+- `400` - groupName or participantIds required
 - `401` - Unauthorized
 - `500` - Server error
 
 ---
 
-#### Invite User to Group *(pending backend implementation)*
+#### Invite User to Group
 ```http
 POST /api/conversations/:id/invite
 ```
@@ -281,19 +297,42 @@ POST /api/conversations/:id/invite
 **Response** (200 OK):
 ```json
 {
-  "message": "User added to group"
+  "_id": "60d5ec49f1b2c72b8c8e4f1d",
+  "groupName": "Design Team",
+  "participants": [
+    {
+      "_id": "60d5ec49f1b2c72b8c8e4f1a",
+      "name": "John Doe",
+      "email": "john@example.com"
+    },
+    {
+      "_id": "60d5ec49f1b2c72b8c8e4f1e",
+      "name": "New User",
+      "email": "newuser@example.com"
+    }
+  ],
+  "isGroup": true,
+  "createdBy": {
+    "_id": "60d5ec49f1b2c72b8c8e4f1a",
+    "name": "John Doe",
+    "email": "john@example.com"
+  },
+  "lastMessage": null,
+  "createdAt": "2024-01-15T09:00:00.000Z",
+  "updatedAt": "2024-01-15T09:00:00.000Z"
 }
 ```
 
 **Errors**:
-- `400` - userId required or user already in group
+- `400` - userId required, user already in group, or not a group conversation
 - `401` - Unauthorized
+- `403` - You are not a member of this group
 - `404` - Conversation not found
 - `500` - Server error
 
 ---
 
-#### Leave Group *(pending backend implementation)*
+#### Leave Group
 ```http
 POST /api/conversations/:id/leave
 ```
@@ -303,11 +342,21 @@ POST /api/conversations/:id/leave
 **Response** (200 OK):
 ```json
 {
-  "message": "You have left the group"
+  "message": "Successfully left the group",
+  "conversation": {
+    "_id": "60d5ec49f1b2c72b8c8e4f1d",
+    "groupName": "Design Team",
+    "participants": ["60d5ec49f1b2c72b8c8e4f1b"],
+    "isGroup": true,
+    "createdBy": "60d5ec49f1b2c72b8c8e4f1b"
+  }
 }
 ```
 
+**Note**: If the creator leaves, ownership is automatically transferred to the first remaining participant. If no participants remain, the group is deleted.
+
 **Errors**:
+- `400` - Not a group conversation or not a member
 - `401` - Unauthorized
 - `404` - Conversation not found
 - `500` - Server error

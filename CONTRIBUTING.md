@@ -293,7 +293,9 @@ Socket.IO events only, preventing duplicate messages.
 - [ ] Add message pagination
 - [ ] Implement read receipts
 - [ ] Add file/image upload
-- [ ] Create group chat functionality
+- [x] Create group chat functionality **✅ Completed**
+  - [x] Frontend: Groups page (`app/groups/page.tsx`) with create/invite/leave functionality
+  - [x] Backend: Group conversation endpoints (`POST /api/conversations/group`, `POST /api/conversations/:id/invite`, `POST /api/conversations/:id/leave`)
 - [ ] Add message search
 
 ### Medium Priority
