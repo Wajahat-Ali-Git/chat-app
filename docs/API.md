@@ -180,11 +180,14 @@ GET /api/conversations
       "createdAt": "2024-01-15T10:00:00.000Z"
     },
     "isGroup": false,
+    "unreadCount": 3,
     "createdAt": "2024-01-15T09:00:00.000Z",
     "updatedAt": "2024-01-15T10:00:00.000Z"
   }
 ]
 ```
+
+> `unreadCount` is computed server-side via a single aggregation query and attached to every conversation object. It reflects the number of messages the requesting user has not yet read.
 
 **Errors**:
 - `401` - Unauthorized
@@ -192,7 +195,7 @@ GET /api/conversations
 
 ---
 
-#### Create or Get Conversation
+#### Create or Get 1-to-1 Conversation
 ```http
 POST /api/conversations
 ```
@@ -224,6 +227,93 @@ POST /api/conversations
 
 ---
 
+#### Create Group Conversation *(pending backend implementation)*
+```http
+POST /api/conversations/group
+```
+
+**Headers**: `Authorization: Bearer <token>` (Required)
+
+**Request Body**:
+```json
+{
+  "groupName": "Design Team",
+  "members": [
+    "60d5ec49f1b2c72b8c8e4f1b",
+    "60d5ec49f1b2c72b8c8e4f1c"
+  ]
+}
+```
+
+**Response** (201 Created):
+```json
+{
+  "_id": "60d5ec49f1b2c72b8c8e4f1d",
+  "groupName": "Design Team",
+  "participants": ["60d5ec49f1b2c72b8c8e4f1a", "60d5ec49f1b2c72b8c8e4f1b", "60d5ec49f1b2c72b8c8e4f1c"],
+  "isGroup": true,
+  "createdBy": "60d5ec49f1b2c72b8c8e4f1a",
+  "createdAt": "2024-01-15T09:00:00.000Z"
+}
+```
+
+**Errors**:
+- `400` - groupName or members required
+- `401` - Unauthorized
+- `500` - Server error
+
+---
+
+#### Invite User to Group *(pending backend implementation)*
+```http
+POST /api/conversations/:id/invite
+```
+
+**Headers**: `Authorization: Bearer <token>` (Required)
+
+**Request Body**:
+```json
+{
+  "userId": "60d5ec49f1b2c72b8c8e4f1e"
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "message": "User added to group"
+}
+```
+
+**Errors**:
+- `400` - userId required or user already in group
+- `401` - Unauthorized
+- `404` - Conversation not found
+- `500` - Server error
+
+---
+
+#### Leave Group *(pending backend implementation)*
+```http
+POST /api/conversations/:id/leave
+```
+
+**Headers**: `Authorization: Bearer <token>` (Required)
+
+**Response** (200 OK):
+```json
+{
+  "message": "You have left the group"
+}
+```
+
+**Errors**:
+- `401` - Unauthorized
+- `404` - Conversation not found
+- `500` - Server error
+
+---
+
 ### Message Routes
 
 #### Get Messages
@@ -232,6 +322,8 @@ GET /api/messages/:conversationId
 ```
 
 **Headers**: `Authorization: Bearer <token>` (Required)
+
+> This endpoint also marks all messages in the conversation as read for the requesting user and emits a `messages_read` Socket.IO event to the conversation room.
 
 **Response** (200 OK):
 ```json
@@ -301,10 +393,31 @@ POST /api/messages
 }
 ```
 
-**Note**: This endpoint also emits a `new_message` Socket.IO event to all participants
+**Note**: This endpoint also emits a `new_message` Socket.IO event to all participants in the conversation room, **and** directly to each participant's personal `userId` room so they receive the notification even when a different conversation is open.
 
 **Errors**:
 - `400` - Missing required fields
+- `401` - Unauthorized
+- `500` - Server error
+
+---
+
+#### Get Unread Count
+```http
+GET /api/messages/:conversationId/unread
+```
+
+**Headers**: `Authorization: Bearer <token>` (Required)
+
+**Response** (200 OK):
+```json
+{
+  "conversationId": "60d5ec49f1b2c72b8c8e4f1c",
+  "unreadCount": 5
+}
+```
+
+**Errors**:
 - `401` - Unauthorized
 - `500` - Server error
 
@@ -363,6 +476,14 @@ Another user started typing
 ```javascript
 socket.on('user_typing', ({ conversationId, userId }) => {
   // Show typing indicator
+});
+```
+
+#### messages_read
+Emitted when a user opens a conversation and reads all messages. Allows other clients to clear their unread badge for that conversation.
+```javascript
+socket.on('messages_read', ({ conversationId, userId }) => {
+  // Clear unread badge for this conversation
 });
 ```
 
