@@ -160,7 +160,7 @@ export default function GroupsPage() {
         "http://localhost:5000/api/conversations/group",
         {
           groupName: groupName.trim(),
-          members: selectedMembers.map((m) => m._id),
+          participantIds: selectedMembers.map((m) => m._id),
         },
         { headers: { Authorization: `Bearer ${token}` } },
       );
