@@ -300,6 +300,9 @@ Socket.IO events only, preventing duplicate messages.
 
 ### Medium Priority
 - [x] Add emoji picker **✅ Completed**
+- [x] Message emoji reactions **✅ Completed**
+  - [x] Backend: reactions array, toggle controller, socket events
+  - [x] Frontend: hover quick picker (👍❤️😂😮😢🔥), reaction chips, live updates
 - [ ] Implement message reactions
 - [ ] Add user profile editing
 - [ ] Create settings page

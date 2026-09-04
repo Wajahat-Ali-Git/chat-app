@@ -294,40 +294,43 @@ POST /api/conversations/:id/invite
 }
 ```
 
-**Response** (200 OK):
+**Response** (201 Created):
 ```json
 {
-  "_id": "60d5ec49f1b2c72b8c8e4f1d",
-  "groupName": "Design Team",
-  "participants": [
-    {
+  "message": "Invite sent",
+  "inviteMessage": {
+    "_id": "60d5ec49f1b2c72b8c8e4f2a",
+    "conversation": "60d5ec49f1b2c72b8c8e4f2b",
+    "sender": {
       "_id": "60d5ec49f1b2c72b8c8e4f1a",
       "name": "John Doe",
       "email": "john@example.com"
     },
-    {
-      "_id": "60d5ec49f1b2c72b8c8e4f1e",
-      "name": "New User",
-      "email": "newuser@example.com"
-    }
-  ],
-  "isGroup": true,
-  "createdBy": {
-    "_id": "60d5ec49f1b2c72b8c8e4f1a",
-    "name": "John Doe",
-    "email": "john@example.com"
+    "text": "You have been invited to join \"Design Team\"",
+    "type": "group_invite",
+    "groupInvite": {
+      "groupId": "60d5ec49f1b2c72b8c8e4f1d",
+      "groupName": "Design Team",
+      "invitedBy": {
+        "_id": "60d5ec49f1b2c72b8c8e4f1a",
+        "name": "John Doe"
+      },
+      "status": "pending"
+    },
+    "createdAt": "2024-01-15T10:00:00.000Z",
+    "updatedAt": "2024-01-15T10:00:00.000Z"
   },
-  "lastMessage": null,
-  "createdAt": "2024-01-15T09:00:00.000Z",
-  "updatedAt": "2024-01-15T09:00:00.000Z"
+  "dmConversationId": "60d5ec49f1b2c72b8c8e4f2b"
 }
 ```
 
+> This endpoint **does NOT** directly add the user to the group. Instead, it finds (or creates) a 1‑on‑1 direct message conversation between the inviter and the invited user, inserts a `group_invite` message there, and emits a `new_message` socket event to both users. The invited user must respond via the invite card in the DM.
+
 **Errors**:
-- `400` - userId required, user already in group, or not a group conversation
+- `400` - userId required, user already in group, not a group conversation, or a pending invite already exists
 - `401` - Unauthorized
 - `403` - You are not a member of this group
-- `404` - Conversation not found
+- `404` - Group not found
 - `500` - Server error
 
 ---
@@ -472,6 +475,101 @@ GET /api/messages/:conversationId/unread
 
 ---
 
+#### Respond to Group Invite
+```http
+POST /api/messages/:messageId/respond-invite
+```
+
+**Headers**: `Authorization: Bearer <token>` (Required)
+
+**Request Body**:
+```json
+{
+  "response": "accepted"  // or "rejected"
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "message": "Joined the group!",
+  "inviteMessage": {
+    "_id": "60d5ec49f1b2c72b8c8e4f2a",
+    "conversation": "60d5ec49f1b2c72b8c8e4f2b",
+    "sender": {
+      "_id": "60d5ec49f1b2c72b8c8e4f1a",
+      "name": "John Doe"
+    },
+    "text": "You have been invited to join \"Design Team\"",
+    "type": "group_invite",
+    "groupInvite": {
+      "groupId": "60d5ec49f1b2c72b8c8e4f1d",
+      "groupName": "Design Team",
+      "invitedBy": {
+        "_id": "60d5ec49f1b2c72b8c8e4f1a",
+        "name": "John Doe"
+      },
+      "status": "accepted"  // or "rejected"
+    },
+    "createdAt": "2024-01-15T10:00:00.000Z",
+    "updatedAt": "2024-01-15T10:02:00.000Z"
+  }
+}
+```
+
+> This endpoint is called when the recipient of a group invite clicks **Accept** or **Decline** in the DM. On `"accepted"`, the user is automatically added to the group's participants. The updated `group_invite` message is emitted via `invite_response` socket event so both sides see the response live.
+
+**Errors**:
+- `400` - invalid response, message is not a group invite, or invite already responded to
+- `401` - Unauthorized
+- `403` - You cannot respond to this invite
+- `404` - Message not found
+- `500` - Server error
+
+---
+
+#### React to Message
+```http
+POST /api/messages/:messageId/react
+```
+
+**Headers**: `Authorization: Bearer <token>` (Required)
+
+**Request Body**:
+```json
+{
+  "emoji": "👍"
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "_id": "60d5ec49f1b2c72b8c8e4f1d",
+  "conversation": "60d5ec49f1b2c72b8c8e4f1c",
+  "sender": {
+    "_id": "60d5ec49f1b2c72b8c8e4f1a",
+    "name": "John Doe"
+  },
+  "text": "Hello there!",
+  "reactions": [
+    { "emoji": "👍", "userId": "60d5ec49f1b2c72b8c8e4f1b" }
+  ],
+  "createdAt": "2024-01-15T10:00:00.000Z",
+  "updatedAt": "2024-01-15T10:01:00.000Z"
+}
+```
+
+> Toggle behaviour: clicking the same emoji again removes your reaction; clicking a different emoji replaces the old one. Each user can have at most one reaction per message. The updated message is emitted via `reaction_updated` socket event to the conversation room.
+
+**Errors**:
+- `400` - emoji required
+- `401` - Unauthorized
+- `404` - Message not found
+- `500` - Server error
+
+---
+
 ## Socket.IO Events
 
 ### Client → Server Events
@@ -533,6 +631,22 @@ Emitted when a user opens a conversation and reads all messages. Allows other cl
 ```javascript
 socket.on('messages_read', ({ conversationId, userId }) => {
   // Clear unread badge for this conversation
+});
+```
+
+#### invite_response
+Emitted when a group invite is accepted or declined.
+```javascript
+socket.on('invite_response', (updatedMessage) => {
+  // Update the invite card to show accepted/declined status
+});
+```
+
+#### reaction_updated
+Emitted when a reaction is added/removed on a message.
+```javascript
+socket.on('reaction_updated', (updatedMessage) => {
+  // Update the message's reaction chips in the UI
 });
 ```
 
