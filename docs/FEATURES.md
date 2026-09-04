@@ -21,6 +21,16 @@
 - Online/offline status tracking
 - Last seen timestamps
 
+### 👥 Group Conversations
+- Create named group conversations with multiple members
+- View all groups you belong to or have created
+- Invite new members to existing groups
+- Leave a group at any time
+- Admin badge for group creators
+- Member avatar stack showing up to 5 participants
+- Last message preview per group
+- Open group chat directly from the groups page
+
 ### 🔄 Real-Time Features
 
 #### User Presence Tracking
@@ -66,6 +76,16 @@ Real-time typing indicators shown in two locations:
 - Contact search by name or email
 - Conversation filtering
 - Real-time search results
+- **Cross-conversation search** — search by contact name, message keyword, or date/time across all conversations with highlighted match reasons
+- **Smart date queries** — supports "today", "yesterday", "this week", "last week", "this month", ISO dates, and natural dates like "Jan 15"
+- **Targeted scroll** — clicking a search result navigates directly to the matched message and highlights it with a blue ring
+
+### 🔔 Unread Message Tracking
+- Per-conversation unread badge with live count
+- Total unread count shown in the dashboard header
+- Badge clears instantly when a conversation is opened
+- Badges update in real-time without reload via Socket.IO
+- `readBy` tracking persisted on each message in the database
 
 ---
 
@@ -80,7 +100,8 @@ Real-time typing indicators shown in two locations:
 
 #### Messaging Events
 - `join_conversation` - User joins a conversation room
-- `new_message` - New message sent in conversation
+- `new_message` - New message sent in conversation (emitted to room **and** each participant's personal userId room)
+- `messages_read` - Broadcast when a user reads a conversation, clears badges for all clients
 
 #### Typing Events
 - `typing` - User starts typing
@@ -101,11 +122,15 @@ Real-time typing indicators shown in two locations:
 - `GET /api/users/:id` - Get user by ID
 
 ### Conversations
-- `GET /api/conversations` - Get user's conversations
-- `POST /api/conversations` - Create or get conversation
+- `GET /api/conversations` - Get user's conversations (includes `unreadCount` per item)
+- `POST /api/conversations` - Create or get 1-to-1 conversation
+- `POST /api/conversations/group` - Create a new group *(backend endpoint pending)*
+- `POST /api/conversations/:id/invite` - Add a user to a group *(backend endpoint pending)*
+- `POST /api/conversations/:id/leave` - Leave a group *(backend endpoint pending)*
 
 ### Messages
-- `GET /api/messages/:conversationId` - Get conversation messages
+- `GET /api/messages/:conversationId` - Get conversation messages (marks all as read)
+- `GET /api/messages/:conversationId/unread` - Get unread count for a conversation
 - `POST /api/messages` - Send new message
 
 ---
@@ -141,6 +166,7 @@ Real-time typing indicators shown in two locations:
   conversation: ObjectId (ref: Conversation),
   sender: ObjectId (ref: User),
   text: String (required),
+  readBy: [ObjectId] (ref: User),  // users who have read this message
   timestamps: true
 }
 ```
@@ -151,13 +177,13 @@ Real-time typing indicators shown in two locations:
 
 ### Planned Features
 - [ ] File and image sharing
-- [ ] Group chat functionality
+- [x] Group chat UI **✅ Frontend complete — backend endpoints pending**
+- [ ] Group backend: create, invite, leave endpoints
 - [ ] Message editing and deletion
 - [ ] Message reactions (emoji)
 - [ ] Voice messages
 - [ ] Video calling
-- [ ] Read receipts
-- [ ] Message search within conversations
+- [ ] Read receipts (per-user seen indicators in chat)
 - [ ] Push notifications
 - [ ] User blocking
 - [ ] Message encryption
@@ -167,6 +193,9 @@ Real-time typing indicators shown in two locations:
 - [ ] Light mode
 - [ ] Custom emoji picker themes
 - [x] Emoji picker **✅ Completed**
+- [x] Unread message badges **✅ Completed**
+- [x] Cross-conversation search **✅ Completed**
+- [x] Groups page **✅ Frontend complete**
 - [ ] GIF support
 - [ ] Message formatting (bold, italic, code)
 - [ ] Link previews

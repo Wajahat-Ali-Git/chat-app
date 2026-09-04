@@ -95,9 +95,14 @@ app/
 ├── layout.tsx                 # Root layout (global providers)
 ├── page.tsx                   # Landing page
 ├── home/page.tsx              # Main chat interface
-│   ├── Conversation List      # Shows all conversations
+│   ├── Conversation List      # Shows all 1-to-1 conversations with search
 │   ├── Chat Window            # Active conversation messages
-│   └── Message Input          # Send new messages
+│   └── Message Input          # Send new messages with emoji picker
+├── groups/page.tsx            # Groups management
+│   ├── Group Cards Grid       # All/My groups with member stack
+│   ├── Create Group Modal     # Name input + member picker
+│   ├── Invite Member Modal    # Searchable user list per group
+│   └── Leave Group Modal      # Confirmation dialog
 ├── contacts/page.tsx          # User directory
 │   └── Contact Cards          # Individual contact components
 ├── login/page.tsx             # Authentication
@@ -162,6 +167,7 @@ src/
   lastMessage: ObjectId → Message,
   isGroup: Boolean,
   groupName: String (optional),
+  createdBy: ObjectId → User (optional, set for groups),
   createdAt: Date,
   updatedAt: Date
 }
@@ -171,6 +177,7 @@ src/
 - Conversation → Many Users (participants)
 - Conversation → One Message (lastMessage)
 - Conversation → Many Messages
+- Groups: `isGroup: true`, `groupName` required, `createdBy` set to creator
 
 ---
 
@@ -180,6 +187,7 @@ src/
   conversation: ObjectId → Conversation,
   sender: ObjectId → User,
   text: String,
+  readBy: [ObjectId → User],  // populated by sender on create; others added on read
   createdAt: Date,
   updatedAt: Date
 }
@@ -202,13 +210,26 @@ src/
 **Component State:**
 ```typescript
 // Home Component
-- conversations: Conversation[]
+- conversations: Conversation[]      // includes unreadCount per item
 - messages: Message[]
 - conversationId: string | null
+- unreadCounts: Record<string, number>
+- searchQuery: string
+- searchResults: SearchResult[] | null
+- targetMessageId: string | null     // scroll-to target after search nav
 - text: string
 - typingUsers: Set<string>
 - isTyping: boolean
 - socket: Socket
+
+// Groups Component
+- groups: Group[]
+- allUsers: User[]
+- showCreateModal: boolean
+- inviteTargetGroup: Group | null
+- leaveTarget: Group | null
+- selectedMembers: User[]
+- tab: "all" | "mine"
 ```
 
 **State Updates:**
@@ -235,11 +256,25 @@ Broadcast 'user_status_changed' to all clients
 ```
 User types message → HTTP POST /api/messages
   ↓
-Server saves to database
+Server saves to database (readBy seeded with senderId)
   ↓
 Server emits 'new_message' to conversation room
   ↓
-All participants receive message instantly
+Server also emits 'new_message' to each participant's personal userId room
+  ↓
+Active conversation recipients: append to messages list
+Background recipients: increment unreadCounts badge
+```
+
+#### Reading Messages
+```
+User opens conversation → HTTP GET /api/messages/:id
+  ↓
+Server returns messages + marks all as read (updateMany readBy)
+  ↓
+Server emits 'messages_read' to conversation room
+  ↓
+All clients for this conversation clear their unread badge
 ```
 
 #### Typing Indicators

@@ -49,9 +49,11 @@ export default function Home() {
   const activeConversation = conversations.find(
     (conversation) => conversation._id === conversationId,
   );
-  const activeConversationUserName = activeConversation?.participants?.find(
-    (participant: any) => participant._id !== userId,
-  )?.name;
+  const activeConversationUserName = activeConversation?.isGroup
+    ? activeConversation?.groupName || "Unnamed Group"
+    : activeConversation?.participants?.find(
+        (participant: any) => participant._id !== userId,
+      )?.name;
 
   useEffect(() => {
     const activeConvo =
@@ -198,12 +200,30 @@ export default function Home() {
       });
     };
 
+    // When the recipient responds to an invite, update that message in state
+    const handleInviteResponse = (updatedMessage: any) => {
+      setMessages((prev) =>
+        prev.map((m) => (m._id === updatedMessage._id ? updatedMessage : m)),
+      );
+    };
+
+    // Live reaction updates — replace the message in state with the server copy
+    const handleReactionUpdated = (updatedMessage: any) => {
+      setMessages((prev) =>
+        prev.map((m) => (m._id === updatedMessage._id ? updatedMessage : m)),
+      );
+    };
+
     socket.on("new_message", handleNewMessage);
     socket.on("messages_read", handleMessagesRead);
+    socket.on("invite_response", handleInviteResponse);
+    socket.on("reaction_updated", handleReactionUpdated);
 
     return () => {
       socket.off("new_message", handleNewMessage);
       socket.off("messages_read", handleMessagesRead);
+      socket.off("invite_response", handleInviteResponse);
+      socket.off("reaction_updated", handleReactionUpdated);
     };
   }, [socket, conversationId, userId]);
 
@@ -691,10 +711,32 @@ export default function Home() {
                         <ul className="divide-y divide-slate-900">
                           {conversations.map((conversation) => {
                             if (!conversation || !conversation.participants) return null;
-                            const otherUser = conversation.participants.find(
-                              (participant: any) => participant._id !== userId,
-                            );
+                            const isGroup = conversation.isGroup;
+                            const otherUser = !isGroup
+                              ? conversation.participants.find(
+                                  (participant: any) => participant._id !== userId,
+                                )
+                              : null;
+                            const displayName = isGroup
+                              ? conversation.groupName || "Unnamed Group"
+                              : otherUser?.name || "Unknown";
                             const isActive = conversationId === conversation._id;
+
+                            // Last message preview — for groups prefix with sender name
+                            const lastMsg = conversation.lastMessage;
+                            let lastMsgPreview = "No messages yet.";
+                            if (lastMsg?.text) {
+                              if (isGroup && lastMsg.sender) {
+                                const senderName =
+                                  lastMsg.sender._id === userId
+                                    ? "You"
+                                    : lastMsg.sender.name || "Member";
+                                lastMsgPreview = `${senderName}: ${lastMsg.text}`;
+                              } else {
+                                lastMsgPreview = lastMsg.text;
+                              }
+                            }
+
                             return (
                               <li
                                 key={conversation._id}
@@ -710,23 +752,34 @@ export default function Home() {
                                 <div className="flex items-center justify-between gap-3">
                                   <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-2">
+                                      {isGroup && (
+                                        <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 rounded-md">
+                                          Group
+                                        </span>
+                                      )}
                                       <p className="text-sm font-semibold text-white truncate">
-                                        {otherUser?.name || "Unknown"}
+                                        {displayName}
                                       </p>
-                                      {otherUser?.isOnline && <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />}
+                                      {!isGroup && otherUser?.isOnline && (
+                                        <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                                      )}
                                     </div>
-                                    <p className="text-xs text-slate-500 truncate mt-0.5">
-                                      {otherUser?.email || "No email"}
-                                    </p>
+                                    {!isGroup && (
+                                      <p className="text-xs text-slate-500 truncate mt-0.5">
+                                        {otherUser?.email || "No email"}
+                                      </p>
+                                    )}
                                   </div>
                                   <div className="flex flex-col items-end gap-1.5 shrink-0">
-                                    <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
-                                      {otherUser?.isOnline
-                                        ? "Online"
-                                        : otherUser?.lastSeen
-                                        ? formatLastSeen(otherUser.lastSeen)
-                                        : "Offline"}
-                                    </span>
+                                    {!isGroup && (
+                                      <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                                        {otherUser?.isOnline
+                                          ? "Online"
+                                          : otherUser?.lastSeen
+                                          ? formatLastSeen(otherUser.lastSeen)
+                                          : "Offline"}
+                                      </span>
+                                    )}
                                     {unreadCounts[conversation._id] > 0 && (
                                       <span className="inline-flex items-center justify-center min-w-[20px] h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold px-1.5 shadow-md shadow-blue-500/30">
                                         {unreadCounts[conversation._id] > 99 ? "99+" : unreadCounts[conversation._id]}
@@ -735,7 +788,7 @@ export default function Home() {
                                   </div>
                                 </div>
                                 <p className={`mt-2 truncate text-xs ${unreadCounts[conversation._id] ? "text-slate-200 font-medium" : "text-slate-400"}`}>
-                                  {conversation.lastMessage?.text || "No messages yet."}
+                                  {lastMsgPreview}
                                 </p>
                               </li>
                             );
@@ -775,10 +828,40 @@ export default function Home() {
                     {activeConversation && activeConversation.participants && (
                       <p className="text-xs text-slate-400 mt-1 flex items-center gap-1.5">
                         {(() => {
+                           // ── Group conversation ──────────────────────────
+                           if (activeConversation.isGroup) {
+                             const memberCount = activeConversation.participants.length;
+                             const anyTyping = [...typingUsers].some((uid) =>
+                               activeConversation.participants.some((p: any) => p._id === uid)
+                             );
+                             if (anyTyping) {
+                               const typer = activeConversation.participants.find((p: any) =>
+                                 typingUsers.has(p._id)
+                               );
+                               return (
+                                 <span className="flex items-center gap-1.5 text-green-400 font-medium">
+                                   <span className="flex gap-0.5">
+                                     <span className="w-1 h-1 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
+                                     <span className="w-1 h-1 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
+                                     <span className="w-1 h-1 bg-green-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                                   </span>
+                                   {typer?.name ?? "Someone"} is typing...
+                                 </span>
+                               );
+                             }
+                             return (
+                               <>
+                                 <span className="text-indigo-400 font-semibold">Group</span>
+                                 <span className="w-1 h-1 rounded-full bg-slate-600"></span>
+                                 {memberCount} {memberCount === 1 ? "member" : "members"}
+                               </>
+                             );
+                           }
+
+                           // ── 1-on-1 conversation ─────────────────────────
                            const partner = activeConversation.participants.find((p: any) => p._id !== userId);
                            if (!partner) return null;
                            
-                           // Check if partner is typing
                            if (typingUsers.has(partner._id)) {
                              return (
                                <span className="flex items-center gap-1.5 text-green-400 font-medium">
@@ -825,35 +908,227 @@ export default function Home() {
                       const isMine =
                         msg.sender?._id === userId || msg.sender === userId;
                       const isTarget = msg._id === targetMessageId;
+
+                      // ── Group invite card ────────────────────────────────
+                      if (msg.type === "group_invite") {
+                        const invite = msg.groupInvite;
+                        const status: string = invite?.status ?? "pending";
+                        const isPending = status === "pending";
+                        // Only the recipient (non-sender) can respond
+                        const canRespond = !isMine && isPending;
+
+                        const statusStyles: Record<string, string> = {
+                          pending:  "border-indigo-500/30 bg-indigo-500/5",
+                          accepted: "border-emerald-500/30 bg-emerald-500/5",
+                          rejected: "border-red-500/20 bg-red-500/5",
+                        };
+                        const statusLabel: Record<string, string> = {
+                          pending:  "",
+                          accepted: "✓ Accepted",
+                          rejected: "✗ Declined",
+                        };
+                        const statusLabelStyle: Record<string, string> = {
+                          accepted: "text-emerald-400",
+                          rejected: "text-red-400",
+                        };
+
+                        const handleRespond = async (response: "accepted" | "rejected") => {
+                          const token = localStorage.getItem("token");
+                          if (!token) return;
+                          try {
+                            const res = await axios.post(
+                              `http://localhost:5000/api/messages/${msg._id}/respond-invite`,
+                              { response },
+                              { headers: { Authorization: `Bearer ${token}` } },
+                            );
+                            // Optimistically update local state
+                            setMessages((prev) =>
+                              prev.map((m) =>
+                                m._id === msg._id ? res.data.inviteMessage : m,
+                              ),
+                            );
+                            // Refresh groups list if accepted
+                            if (response === "accepted") {
+                              const convRes = await axios.get(
+                                "http://localhost:5000/api/conversations",
+                                { headers: { Authorization: `Bearer ${token}` } },
+                              );
+                              setConversations(convRes.data);
+                            }
+                          } catch (err: any) {
+                            console.error("Invite response failed:", err?.response?.data?.message);
+                          }
+                        };
+
+                        return (
+                          <div
+                            key={msg._id || index}
+                            ref={(el) => { if (msg._id) messageRefs.current[msg._id] = el; }}
+                            className="flex justify-center my-2"
+                          >
+                            <div className={`w-full max-w-sm rounded-2xl border p-4 ${statusStyles[status] ?? statusStyles.pending} backdrop-blur-sm`}>
+                              {/* Header */}
+                              <div className="flex items-center gap-2 mb-3">
+                                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center shrink-0">
+                                  <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2h5M12 12a4 4 0 100-8 4 4 0 000 8z" />
+                                  </svg>
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-xs font-semibold uppercase tracking-widest text-indigo-300">
+                                    Group Invitation
+                                  </p>
+                                  <p className="text-sm font-bold text-white truncate">
+                                    {invite?.groupName ?? "Unknown Group"}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Invite text */}
+                              <p className="text-xs text-slate-400 mb-3 leading-relaxed">
+                                {isMine
+                                  ? `You invited ${activeConversation?.participants?.find((p: any) => p._id !== userId)?.name ?? "them"} to join this group.`
+                                  : `${msg.sender?.name ?? "Someone"} invited you to join this group.`}
+                              </p>
+
+                              {/* Status / actions */}
+                              {!isPending ? (
+                                <p className={`text-xs font-semibold text-center ${statusLabelStyle[status] ?? ""}`}>
+                                  {statusLabel[status]}
+                                </p>
+                              ) : canRespond ? (
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => handleRespond("accepted")}
+                                    className="flex-1 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold transition-all"
+                                  >
+                                    Accept
+                                  </button>
+                                  <button
+                                    onClick={() => handleRespond("rejected")}
+                                    className="flex-1 py-2 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-semibold transition-all"
+                                  >
+                                    Decline
+                                  </button>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-slate-500 text-center">
+                                  Waiting for response…
+                                </p>
+                              )}
+
+                              {/* Timestamp */}
+                              {msg.createdAt && (
+                                <p className="text-[10px] text-slate-600 text-center mt-2">
+                                  {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // ── Normal text message ──────────────────────────────
+                      // Group reactions by emoji for display
+                      const reactionGroups: Record<string, { count: number; myReaction: boolean }> = {};
+                      (msg.reactions ?? []).forEach((r: any) => {
+                        const e = r.emoji;
+                        if (!reactionGroups[e]) reactionGroups[e] = { count: 0, myReaction: false };
+                        reactionGroups[e].count++;
+                        if (r.userId === userId || r.userId?._id === userId) {
+                          reactionGroups[e].myReaction = true;
+                        }
+                      });
+                      const reactionEntries = Object.entries(reactionGroups);
+
+                      const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+
+                      const handleReact = async (emoji: string) => {
+                        const token = localStorage.getItem("token");
+                        if (!token) return;
+                        try {
+                          const res = await axios.post(
+                            `http://localhost:5000/api/messages/${msg._id}/react`,
+                            { emoji },
+                            { headers: { Authorization: `Bearer ${token}` } },
+                          );
+                          setMessages((prev) =>
+                            prev.map((m) => (m._id === msg._id ? res.data : m)),
+                          );
+                        } catch (err) {
+                          console.error("React failed:", err);
+                        }
+                      };
+
                       return (
                         <div
                           key={msg._id || index}
                           ref={(el) => { if (msg._id) messageRefs.current[msg._id] = el; }}
-                          className={`flex transition-colors duration-300 rounded-[24px] ${
+                          className={`group/msg flex transition-colors duration-300 rounded-[24px] ${
                             isMine ? "justify-end" : "justify-start"
                           } ${isTarget ? "bg-blue-500/10 -mx-2 px-2 py-1" : ""}`}
                         >
-                          <div
-                            className={`max-w-[75%] rounded-[20px] px-4 py-3 text-sm shadow-md ${
-                              isMine
-                                ? "bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white rounded-br-none"
-                                : "bg-slate-900 border border-slate-800 text-slate-100 rounded-bl-none"
-                            } ${isTarget ? "ring-2 ring-blue-400/60 ring-offset-1 ring-offset-transparent" : ""}`}
-                          >
-                            <p className="whitespace-pre-wrap leading-relaxed">
-                              {msg.text}
-                            </p>
-                            <div
-                              className={`mt-1.5 flex items-center gap-2 text-[10px] font-medium tracking-wide ${isMine ? "text-slate-300 justify-end" : "text-slate-500 justify-start"}`}
-                            >
-                              <span>{isMine ? "You" : msg.sender?.name || "Partner"}</span>
-                              {msg.createdAt && (
-                                <>
-                                  <span className="w-0.5 h-0.5 rounded-full bg-slate-500/50"></span>
-                                  <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                </>
-                              )}
+                          {/* Reaction picker — shown on hover, placed opposite the bubble */}
+                          <div className={`flex items-center self-end mb-1 ${isMine ? "order-first mr-1.5" : "order-last ml-1.5"}`}>
+                            <div className="opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150 flex items-center gap-0.5 bg-slate-900 border border-slate-700/60 rounded-full px-2 py-1 shadow-lg backdrop-blur-sm">
+                              {QUICK_EMOJIS.map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  onClick={() => handleReact(emoji)}
+                                  className="text-base leading-none hover:scale-125 active:scale-110 transition-transform duration-100 px-0.5"
+                                  title={emoji}
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
                             </div>
+                          </div>
+
+                          {/* Bubble + reactions */}
+                          <div className="flex flex-col max-w-[75%]">
+                            <div
+                              className={`rounded-[20px] px-4 py-3 text-sm shadow-md ${
+                                isMine
+                                  ? "bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white rounded-br-none"
+                                  : "bg-slate-900 border border-slate-800 text-slate-100 rounded-bl-none"
+                              } ${isTarget ? "ring-2 ring-blue-400/60 ring-offset-1 ring-offset-transparent" : ""}`}
+                            >
+                              <p className="whitespace-pre-wrap leading-relaxed">
+                                {msg.text}
+                              </p>
+                              <div
+                                className={`mt-1.5 flex items-center gap-2 text-[10px] font-medium tracking-wide ${isMine ? "text-slate-300 justify-end" : "text-slate-500 justify-start"}`}
+                              >
+                                <span>{isMine ? "You" : msg.sender?.name || "Partner"}</span>
+                                {msg.createdAt && (
+                                  <>
+                                    <span className="w-0.5 h-0.5 rounded-full bg-slate-500/50"></span>
+                                    <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Reaction chips */}
+                            {reactionEntries.length > 0 && (
+                              <div className={`flex flex-wrap gap-1 mt-1 ${isMine ? "justify-end" : "justify-start"}`}>
+                                {reactionEntries.map(([emoji, { count, myReaction }]) => (
+                                  <button
+                                    key={emoji}
+                                    onClick={() => handleReact(emoji)}
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-all duration-150 hover:scale-105 active:scale-95 ${
+                                      myReaction
+                                        ? "bg-blue-500/20 border-blue-500/50 text-blue-200"
+                                        : "bg-slate-800/80 border-slate-700/60 text-slate-300 hover:border-slate-500"
+                                    }`}
+                                    title={myReaction ? "Remove reaction" : "React"}
+                                  >
+                                    <span>{emoji}</span>
+                                    {count > 1 && <span className="font-semibold">{count}</span>}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );

@@ -4,6 +4,8 @@ const {
   sendMessage,
   getMessages,
   getUnreadCount,
+  respondToInvite,
+  reactToMessage,
 } = require("../controllers/messageController");
 
 const { protect } = require("../middleware/authMiddleware");
@@ -16,5 +18,11 @@ router.post("/", protect, sendMessage);
 router.get("/:conversationId/unread", protect, getUnreadCount);
 
 router.get("/:conversationId", protect, getMessages);
+
+// Respond to a group invite message
+router.post("/:messageId/respond-invite", protect, respondToInvite);
+
+// React to a message (toggle)
+router.post("/:messageId/react", protect, reactToMessage);
 
 module.exports = router;
