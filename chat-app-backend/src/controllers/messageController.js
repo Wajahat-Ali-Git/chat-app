@@ -101,8 +101,137 @@ const getUnreadCount = async (req, res) => {
   }
 };
 
+// RESPOND TO GROUP INVITE — accept or reject
+const respondToInvite = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { response } = req.body; // "accepted" | "rejected"
+    const userId = req.user._id;
+
+    if (!["accepted", "rejected"].includes(response)) {
+      return res.status(400).json({ message: "Response must be 'accepted' or 'rejected'" });
+    }
+
+    // Load the invite message
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return res.status(404).json({ message: "Message not found" });
+    }
+    if (message.type !== "group_invite") {
+      return res.status(400).json({ message: "This message is not a group invite" });
+    }
+    if (message.groupInvite.status !== "pending") {
+      return res.status(400).json({ message: "This invite has already been responded to" });
+    }
+
+    // Only the intended recipient (non-sender in the DM) can respond
+    const dm = await Conversation.findById(message.conversation);
+    if (!dm) {
+      return res.status(404).json({ message: "Conversation not found" });
+    }
+    const isRecipient =
+      dm.participants.some((p) => p.toString() === userId.toString()) &&
+      message.sender.toString() !== userId.toString();
+
+    if (!isRecipient) {
+      return res.status(403).json({ message: "You cannot respond to this invite" });
+    }
+
+    // Update the invite status
+    message.groupInvite.status = response;
+    await message.save();
+
+    if (response === "accepted") {
+      // Add the user to the group
+      const group = await Conversation.findById(message.groupInvite.groupId);
+      if (!group) {
+        return res.status(404).json({ message: "Group no longer exists" });
+      }
+
+      const alreadyMember = group.participants.some(
+        (p) => p.toString() === userId.toString()
+      );
+      if (!alreadyMember) {
+        group.participants.push(userId);
+        await group.save();
+      }
+    }
+
+    // Emit the updated message so both users see the new status in real time
+    const populated = await Message.findById(messageId)
+      .populate("sender", "-password")
+      .populate("groupInvite.invitedBy", "-password");
+
+    const io = req.app.get("io");
+    if (io) {
+      io.to(message.conversation.toString()).emit("invite_response", populated);
+    }
+
+    res.status(200).json({
+      message: response === "accepted" ? "Joined the group!" : "Invite declined.",
+      inviteMessage: populated,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// REACT TO MESSAGE — toggle: adds the emoji, or removes it if already set by same user
+const reactToMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { emoji } = req.body;
+    const userId = req.user._id;
+
+    if (!emoji) {
+      return res.status(400).json({ message: "emoji is required" });
+    }
+
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return res.status(404).json({ message: "Message not found" });
+    }
+
+    const existingIndex = message.reactions.findIndex(
+      (r) => r.userId.toString() === userId.toString()
+    );
+
+    if (existingIndex !== -1) {
+      if (message.reactions[existingIndex].emoji === emoji) {
+        // Same emoji — remove it (toggle off)
+        message.reactions.splice(existingIndex, 1);
+      } else {
+        // Different emoji — replace it
+        message.reactions[existingIndex].emoji = emoji;
+      }
+    } else {
+      // No existing reaction — add it
+      message.reactions.push({ emoji, userId });
+    }
+
+    await message.save();
+
+    const populated = await Message.findById(messageId).populate(
+      "sender",
+      "-password"
+    );
+
+    // Emit to everyone in the conversation room so reactions update live
+    const io = req.app.get("io");
+    if (io) {
+      io.to(message.conversation.toString()).emit("reaction_updated", populated);
+    }
+
+    res.status(200).json(populated);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   sendMessage,
   getMessages,
   getUnreadCount,
+  respondToInvite,
+  reactToMessage,
 };

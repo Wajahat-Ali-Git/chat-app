@@ -16,6 +16,7 @@ A modern, full-stack real-time chat application built with Next.js and Node.js, 
 - 💬 **Real-Time Messaging** - Instant messaging with Socket.IO integration
 - 😊 **Emoji Support** - Rich emoji picker with search and categories
 - 👥 **Contact Management** - Search and connect with users in your network
+- 👥 **Group Conversations** - Create groups, invite members, and leave groups
 - 🗂️ **Conversation Management** - Organize and track multiple conversations
 - 🎨 **Modern UI/UX** - Beautiful gradient designs with Tailwind CSS
 - 📱 **Responsive Design** - Fully responsive across all devices
@@ -28,10 +29,12 @@ A modern, full-stack real-time chat application built with Next.js and Node.js, 
   - Shown in chat header with animated green dots
   - Typing bubble in message area
   - Auto-hides after 3 seconds of inactivity
-- � **Instant Status Updates** - Real-time online/offline notifications
+- 🔔 **Unread Message Badges** - Per-conversation unread count, clears on open
+- 🔄 **Instant Status Updates** - Real-time online/offline notifications
 
 ### User Experience
 - 🔍 **Search Functionality** - Find contacts quickly by name or email
+- 🔎 **Cross-Conversation Search** - Search by name, message keyword, or date with highlighted match reasons and direct scroll-to-message navigation
 - 📊 **User Profiles** - View and manage user information
 - 🎭 **Avatar System** - Dynamic gradient avatars with user initials
 - 😊 **Emoji Picker** - Easy emoji selection with dark theme
@@ -67,12 +70,14 @@ chat-app/
 ├── docs/                           # Documentation files
 │   ├── API.md                     # Complete API reference
 │   ├── FEATURES.md                # Detailed features documentation
+│   ├── ARCHITECTURE.md            # System design and data models
 │   └── SETUP.md                   # Setup and installation guide
 │
 ├── chat-app-frontend/              # Next.js frontend application
 │   ├── app/
 │   │   ├── components/            # Reusable React components
 │   │   ├── contacts/              # Contacts page
+│   │   ├── groups/                # Groups page (create, invite, leave)
 │   │   ├── home/                  # Main chat interface
 │   │   ├── login/                 # Login page
 │   │   ├── signup/                # Registration page
@@ -163,7 +168,7 @@ chat-app/
 
 ---
 
-## �📡 API Endpoints
+## 📡 API Endpoints
 
 ### Authentication
 - `POST /api/auth/register` - Register a new user
@@ -174,11 +179,15 @@ chat-app/
 - `GET /api/users/:id` - Get user by ID
 
 ### Conversations
-- `GET /api/conversations` - Get user's conversations
-- `POST /api/conversations` - Create or get conversation with another user
+- `GET /api/conversations` - Get user's conversations (with `unreadCount` per item)
+- `POST /api/conversations` - Create or get 1-to-1 conversation
+- `POST /api/conversations/group` - Create a group *(backend pending)*
+- `POST /api/conversations/:id/invite` - Add a member to a group *(backend pending)*
+- `POST /api/conversations/:id/leave` - Leave a group *(backend pending)*
 
 ### Messages
-- `GET /api/messages/:conversationId` - Get messages for a conversation
+- `GET /api/messages/:conversationId` - Get messages (marks all as read)
+- `GET /api/messages/:conversationId/unread` - Get unread count
 - `POST /api/messages` - Send a new message
 
 ---
@@ -312,12 +321,12 @@ For detailed troubleshooting, see [SETUP.md](docs/SETUP.md)
 ## 🔮 Future Enhancements
 
 - File and image sharing
-- Group chat functionality
+- Group backend endpoints (create, invite, leave)
 - Message editing and deletion
 - Voice and video calling
 - Message reactions
 - Push notifications
-- Read receipts
+- Read receipts per-user in chat
 - Message encryption
 
 See [FEATURES.md](docs/FEATURES.md) for the complete roadmap.

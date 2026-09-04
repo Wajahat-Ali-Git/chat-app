@@ -22,6 +22,11 @@ const conversationSchema = new mongoose.Schema(
     groupName: {
       type: String,
     },
+
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
   },
   {
     timestamps: true,
